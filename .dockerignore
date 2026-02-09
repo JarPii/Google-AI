@@ -1,0 +1,10 @@
+# Ignore
+.venv/
+__pycache__/
+*.pyc
+data/
+.env
+config.yaml
+*.egg-info/
+.git/
+nohup.out
