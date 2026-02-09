@@ -1,0 +1,28 @@
+vertex:
+  project_id: "your-gcp-project"
+  location: "europe-west1"
+  model: "gemini-1.5-flash-002"  # used for source suggestion
+  # ADC credentials: set GOOGLE_APPLICATION_CREDENTIALS or use workload identity
+
+postgres:
+  host: "localhost"
+  port: 5432
+  database: "search_assistant"
+  user: "search_user"
+  password: "search_pass"
+  schema: "public"
+  table: "documents"
+
+embedding:
+  model_name: "BAAI/bge-m3"
+  device: "cpu"
+  batch_size: 16
+
+chunking:
+  target_tokens: 300
+  overlap_tokens: 50
+
+sources:
+  max_per_topic: 10
+  allowed_licenses: ["cc-by", "cc-by-sa", "public-domain", "government"]
+  languages: ["fi", "en"]
