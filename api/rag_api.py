@@ -126,3 +126,15 @@ def ask(q: str = Query(..., description="Kysymys suomeksi tai englanniksi"), k: 
 
 # Serve static files (CSS, JS, images, etc.)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# TESTAUSTA VARTEN - Reitti, joka palauttaa matematiikkaa
+class AskResponseTest(BaseModel):
+    answer: str
+    sources: list = []
+
+@app.get("/test-ask", response_model=AskResponseTest)
+def test_ask():
+    # Tämä palauttaa demovastauksen, jossa on KaTeX/LaTeX -kaavoja
+    return AskResponseTest(
+        answer="Tässä on esimerkki laskentakaavojeni näyttämisestä:\n\nLämmitystarpeen kaava on $P = \\frac{m \\cdot c \\cdot \\Delta T}{t}$, missä $m$ on massa ja $\\Delta T$ on lämpötilaero.\n\nEsimerkkilaskun tulos on:\n$$ E = \\int_{0}^{t} P(t) dt \\approx 45.2 \\text{ kW} $$"
+    )

@@ -190,6 +190,10 @@
     40% { opacity: 1; }
   }
 </style>
+<!-- KaTeX CSS ja JS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
 
@@ -229,6 +233,19 @@ function addMsg(role, html) {
   div.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble">${html}</div>`;
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
+
+  // Render mathematical formulas with KaTeX if present
+  if (role === 'bot' && window.renderMathInElement) {
+    const bubble = div.querySelector('.bubble');
+    renderMathInElement(bubble, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '$', right: '$', display: false}
+      ],
+      throwOnError: false
+    });
+  }
+
   return div;
 }
 
@@ -248,7 +265,14 @@ async function ask() {
   const loader = addLoading();
 
   try {
-    const resp = await fetch(`/ask?q=${encodeURIComponent(q)}&k=5`);
+    // TESTAUSTA VARTEN:
+    // Jos kysyt sanan "kaava", haetaan testidata, joka sisältää matematiikkaa
+    let url = `/ask?q=${encodeURIComponent(q)}&k=5`;
+    if (q.toLowerCase() === "kaava") {
+      url = "/test-ask";
+    }
+
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
 
