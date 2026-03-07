@@ -22,6 +22,10 @@ services:
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
       EMBED_MODEL: "BAAI/bge-m3"
+      AZURE_OPENAI_ENDPOINT: "https://trainer-breefie-openai.openai.azure.com/"
+      AZURE_OPENAI_API_KEY: "${AZURE_OPENAI_API_KEY}"
+      AZURE_OPENAI_DEPLOYMENT_NAME: "gpt-35-turbo"
+      AZURE_OPENAI_API_VERSION: "2024-02-15-preview"
     ports:
       - "8000:8000"
     depends_on:

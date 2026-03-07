@@ -14,3 +14,4 @@ trafilatura>=1.7.0
 pdfplumber>=0.11.0
 tiktoken>=0.7.0
 python-dotenv>=1.0.1
+openai>=1.14.0
