@@ -509,6 +509,99 @@ def delete_session(session_id: str):
     return {"status": "deleted", "id": session_id}
 
 
+# ── Session report ───────────────────────────────────────────────────
+class ReportResponse(BaseModel):
+    session_id: str
+    title: str | None
+    report_markdown: str
+
+
+@app.get("/sessions/{session_id}/report", response_model=ReportResponse)
+def session_report(session_id: str):
+    """Generate a structured Markdown report of the entire session."""
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, title, summary FROM sessions WHERE id = %s",
+            (session_id,)
+        )
+        s = cur.fetchone()
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT role, content, created_at FROM messages "
+            "WHERE session_id = %s ORDER BY created_at",
+            (session_id,)
+        )
+        msgs = cur.fetchall()
+
+    if not msgs:
+        return ReportResponse(
+            session_id=session_id,
+            title=s[1],
+            report_markdown="Ei viestejä tässä sessiossa."
+        )
+
+    # Build conversation transcript for LLM
+    transcript_lines = []
+    for m in msgs:
+        role_label = "Käyttäjä" if m[0] == "user" else "Assistentti"
+        transcript_lines.append(f"**{role_label}** ({m[2].strftime('%H:%M')}):\n{m[1]}")
+    transcript = "\n\n---\n\n".join(transcript_lines)
+
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-35-turbo")
+
+    if not (api_key and endpoint):
+        # Fallback: return raw transcript
+        return ReportResponse(
+            session_id=session_id,
+            title=s[1],
+            report_markdown=f"# {s[1] or 'Keskustelu'}\n\n{transcript}"
+        )
+
+    client = AzureOpenAI(
+        api_key=api_key,
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        azure_endpoint=endpoint
+    )
+
+    report_prompt = (
+        "Laadi alla olevasta keskustelusta strukturoitu Markdown-raportti suomeksi. "
+        "Raportin tulee sisältää:\n"
+        "1. **Otsikko** (# -taso)\n"
+        "2. **Käsitellyt aiheet** – lyhyt luettelo\n"
+        "3. **Laskelmat** – taulukko (jos laskelmia tehtiin): laskenta, parametrit, tulos\n"
+        "4. **Keskeiset tulokset ja johtopäätökset**\n"
+        "5. **Avoimet kysymykset** (jos jäi)\n\n"
+        "Säilytä kaikki matemaattiset kaavat LaTeX-muodossa ($$ ... $$).\n"
+        "Merkitse päivämäärä raportin alkuun."
+    )
+
+    try:
+        resp = client.chat.completions.create(
+            model=deployment_name,
+            messages=[
+                {"role": "system", "content": report_prompt},
+                {"role": "user", "content": transcript}
+            ],
+            max_tokens=1500
+        )
+        report_md = resp.choices[0].message.content
+    except Exception as e:
+        log.warning("Report generation failed: %s", e)
+        report_md = f"# {s[1] or 'Keskustelu'}\n\nRaportin generointi epäonnistui: {e}\n\n---\n\n{transcript}"
+
+    return ReportResponse(
+        session_id=session_id,
+        title=s[1],
+        report_markdown=report_md
+    )
+
+
 # Serve static files (CSS, JS, images, etc.)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

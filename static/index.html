@@ -272,6 +272,82 @@
     cursor: not-allowed;
   }
 
+  /* Report modal */
+  #report-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+  }
+  #report-overlay.visible { display: flex; }
+  #report-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #report-modal .report-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #report-modal .report-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  #report-modal .report-actions {
+    display: flex;
+    gap: 8px;
+  }
+  #report-modal .report-actions button {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #report-modal .report-actions button:hover {
+    border-color: var(--primary);
+  }
+  #report-modal .report-actions button.primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+  #report-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+    white-space: pre-wrap;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  #report-btn {
+    display: none;
+    margin: 0 auto 12px;
+    padding: 8px 16px;
+    background: var(--primary-dim);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    width: calc(100% - 24px);
+  }
+  #report-btn:hover { background: var(--primary); color: #fff; }
+
   /* Loading dots */
   .loading span {
     animation: blink 1.4s infinite both;
@@ -296,7 +372,23 @@
     <h2>Keskustelut</h2>
     <button id="new-session-btn" onclick="startNewSession()">+ Uusi</button>
   </div>
+  <button id="report-btn" onclick="generateReport()">📋 Yhteenveto</button>
   <div id="session-list"></div>
+</div>
+
+<!-- Report modal -->
+<div id="report-overlay" onclick="if(event.target===this)closeReport()">
+  <div id="report-modal">
+    <div class="report-header">
+      <h2>📋 Keskustelun yhteenveto</h2>
+      <div class="report-actions">
+        <button onclick="copyReport()">📋 Kopioi</button>
+        <button onclick="downloadReport()">💾 Lataa .md</button>
+        <button class="primary" onclick="closeReport()">Sulje</button>
+      </div>
+    </div>
+    <div id="report-body"></div>
+  </div>
 </div>
 
 <div id="main">
@@ -457,6 +549,7 @@ async function ask() {
 
     // Refresh sidebar after each answer
     loadSessions();
+    updateReportBtn();
   } catch (err) {
     loader.remove();
     addMsg('bot', `⚠️ Virhe: ${err.message}`);
@@ -482,6 +575,7 @@ function startNewSession() {
   div.appendChild(bubble);
   chat.appendChild(div);
   document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+  updateReportBtn();
   qInput.focus();
 }
 
@@ -565,6 +659,7 @@ async function loadSession(sessionId) {
     }
 
     loadSessions(); // refresh active state
+    updateReportBtn();
   } catch (e) {
     console.error('Failed to load session:', e);
   }
@@ -581,6 +676,56 @@ async function deleteSession(sessionId) {
   } catch (e) {
     console.error('Failed to delete session:', e);
   }
+}
+
+// ── Report functions ──
+
+let lastReportMd = '';
+
+async function generateReport() {
+  if (!currentSessionId) return;
+  const reportBody = document.getElementById('report-body');
+  const overlay = document.getElementById('report-overlay');
+  overlay.classList.add('visible');
+  reportBody.textContent = 'Luodaan yhteenvetoa...';
+
+  try {
+    const resp = await fetch(`/sessions/${currentSessionId}/report`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    lastReportMd = data.report_markdown;
+    reportBody.textContent = lastReportMd;
+    renderMath(reportBody);
+  } catch (e) {
+    reportBody.textContent = '⚠️ Raportin luonti epäonnistui: ' + e.message;
+  }
+}
+
+function closeReport() {
+  document.getElementById('report-overlay').classList.remove('visible');
+}
+
+function copyReport() {
+  navigator.clipboard.writeText(lastReportMd).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅ Kopioitu!';
+    setTimeout(() => { btn.textContent = '📋 Kopioi'; }, 2000);
+  });
+}
+
+function downloadReport() {
+  const blob = new Blob([lastReportMd], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `yhteenveto-${currentSessionId.slice(0,8)}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function updateReportBtn() {
+  const btn = document.getElementById('report-btn');
+  btn.style.display = currentSessionId ? 'block' : 'none';
 }
 
 // Load sessions on page load
