@@ -226,32 +226,54 @@ const btn = document.getElementById('btn');
 
 qInput.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
 
-function addMsg(role, html) {
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  const avatar = role === 'user' ? '👤' : '🤖';
-  div.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble">${html}</div>`;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-
-  // Render mathematical formulas with KaTeX if present
-  if (role === 'bot' && window.renderMathInElement) {
-    const bubble = div.querySelector('.bubble');
-    renderMathInElement(bubble, {
+function renderMath(element) {
+  if (window.renderMathInElement) {
+    renderMathInElement(element, {
       delimiters: [
         {left: '$$', right: '$$', display: true},
-        {left: '$', right: '$', display: false}
+        {left: '\\[', right: '\\]', display: true},
+        {left: '$', right: '$', display: false},
+        {left: '\\(', right: '\\)', display: false}
       ],
       throwOnError: false
     });
+  }
+}
+
+function addMsg(role, text) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+
+  const avatarDiv = document.createElement('div');
+  avatarDiv.className = 'avatar';
+  avatarDiv.textContent = role === 'user' ? '👤' : '🤖';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+
+  // textContent säilyttää takakenoviivat täydellisesti (ei HTML-parsintaa)
+  bubble.textContent = text;
+
+  div.appendChild(avatarDiv);
+  div.appendChild(bubble);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+
+  // KaTeX-renderöinti botin viesteille
+  if (role === 'bot') {
+    renderMath(bubble);
   }
 
   return div;
 }
 
 function addLoading() {
-  const div = addMsg('bot', '<span class="loading"><span>●</span><span>●</span><span>●</span></span>');
+  const div = document.createElement('div');
+  div.className = 'msg bot';
   div.id = 'loading';
+  div.innerHTML = `<div class="avatar">🤖</div><div class="bubble"><span class="loading"><span>●</span><span>●</span><span>●</span></span></div>`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
   return div;
 }
 
@@ -261,12 +283,10 @@ async function ask() {
   qInput.value = '';
   btn.disabled = true;
 
-  addMsg('user', esc(q));
+  addMsg('user', q);
   const loader = addLoading();
 
   try {
-    // TESTAUSTA VARTEN:
-    // Jos kysyt sanan "kaava", haetaan testidata, joka sisältää matematiikkaa
     let url = `/ask?q=${encodeURIComponent(q)}&k=5`;
     if (q.toLowerCase() === "kaava") {
       url = "/test-ask";
@@ -278,36 +298,55 @@ async function ask() {
 
     loader.remove();
 
-    // Build answer bubble
-    let html = esc(data.answer);
+    // Botin vastaus – textContent säilyttää kaiken LaTeXin
+    const botDiv = addMsg('bot', data.answer);
 
+    // Lähteet lisätään erillisenä HTML-elementtinä bubleen
     if (data.sources && data.sources.length) {
-      html += `\n\n<details class="sources"><summary>📎 Lähteet (${data.sources.length})</summary>`;
-      for (const s of data.sources) {
-        html += `
-<div class="source-item">
-  <span class="src-score">${(s.score * 100).toFixed(0)}%</span>
-  <div class="src-title">${esc(s.title || 'Tuntematon')}</div>
-  <div class="src-text">${esc(s.content.slice(0, 200))}…</div>
-  <a href="${esc(s.source_url)}" target="_blank" rel="noopener">🔗 Avaa lähde</a>
-</div>`;
-      }
-      html += '</details>';
-    }
+      const bubble = botDiv.querySelector('.bubble');
+      const details = document.createElement('details');
+      details.className = 'sources';
 
-    addMsg('bot', html);
+      const summary = document.createElement('summary');
+      summary.textContent = `📎 Lähteet (${data.sources.length})`;
+      details.appendChild(summary);
+
+      for (const s of data.sources) {
+        const item = document.createElement('div');
+        item.className = 'source-item';
+
+        const score = document.createElement('span');
+        score.className = 'src-score';
+        score.textContent = `${(s.score * 100).toFixed(0)}%`;
+
+        const title = document.createElement('div');
+        title.className = 'src-title';
+        title.textContent = s.title || 'Tuntematon';
+
+        const text = document.createElement('div');
+        text.className = 'src-text';
+        text.textContent = s.content.slice(0, 200) + '…';
+
+        const link = document.createElement('a');
+        link.href = s.source_url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = '🔗 Avaa lähde';
+
+        item.appendChild(score);
+        item.appendChild(title);
+        item.appendChild(text);
+        item.appendChild(link);
+        details.appendChild(item);
+      }
+      bubble.appendChild(details);
+    }
   } catch (err) {
     loader.remove();
-    addMsg('bot', `⚠️ Virhe: ${esc(err.message)}`);
+    addMsg('bot', `⚠️ Virhe: ${err.message}`);
   }
   btn.disabled = false;
   qInput.focus();
-}
-
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
 </script>
 </body>

@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api/ api/
 COPY scripts/ scripts/
 COPY static/ static/
+COPY calc/ calc/
 COPY config.example.yaml .
 
 # Pre-download the embedding model at build time so startup is fast

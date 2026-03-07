@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div id="test"></div>
+<script>
+  let raw = "\\[ j = \\frac{I}{A} \\]";
+  let div = document.createElement('div');
+  div.textContent = raw;
+  let escaped = div.innerHTML;
+  console.log("Escaped: ", escaped);
+  let unescaped = escaped.replace(/\\\\/g, '\\').replace(/\\([\[\]()])/g, '\\$1');
+  console.log("Unescaped: ", unescaped);
+</script>
+</body>
+</html>
