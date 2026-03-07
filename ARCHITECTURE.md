@@ -14,27 +14,30 @@ kaavat piirtyvät käyttöliittymässä oppikirjatasoisena matematiikkana.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Selain (Client)                          │
-│  index.html ─ KaTeX auto-render ─ textContent-pohjainen DOM    │
+│  index.html ─ KaTeX auto-render ─ session sidebar ─ POST       │
 └──────────┬──────────────────────────────────────────────────────┘
-           │  HTTP GET /ask?q=...
+           │  HTTP POST /ask  { session_id, question }
            ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                    FastAPI  (api/rag_api.py)                     │
 │                                                                  │
-│  1. embed_query(q)     → BAAI/bge-m3 vektori                    │
-│  2. fetch_matches()    → pgvector cosine-similarity haku         │
-│  3. system_prompt      → konteksti + ohjeet mallille             │
-│  4. AzureOpenAI.chat   → vastaus TAI tool_call                   │
-│  5. tool dispatch      → calc/surface_treatment.py               │
-│  6. AzureOpenAI.chat   → lopullinen vastaus (sis. LaTeX)         │
-│  7. return JSON        → { answer, sources[] }                   │
-└──────┬──────────┬───────────────────────┬────────────────────────┘
-       │          │                       │
-       ▼          ▼                       ▼
-┌──────────┐ ┌──────────────┐  ┌─────────────────────────┐
-│ pgvector │ │ Azure OpenAI │  │ calc/surface_treatment.py│
-│ Postgres │ │ gpt-35-turbo │  │ (Python-funktiot)        │
-└──────────┘ └──────────────┘  └─────────────────────────┘
+│  1. load session summary  → sessions-taulu                       │
+│  2. embed_query(q)        → BAAI/bge-m3 vektori                  │
+│  3. fetch_matches()       → pgvector cosine-similarity haku      │
+│  4. system_prompt         → konteksti + summary + ohjeet         │
+│  5. AzureOpenAI.chat      → vastaus TAI tool_call                │
+│  6. tool dispatch         → calc/surface_treatment.py            │
+│  7. AzureOpenAI.chat      → lopullinen vastaus (sis. LaTeX)      │
+│  8. save Q+A to messages  → messages-taulu                       │
+│  9. summarize session     → LLM-kutsu #2 → sessions.summary     │
+│ 10. return JSON           → { answer, sources[], session_id }    │
+└──────┬──────────┬───────────────┬────────────┬───────────────────┘
+       │          │               │            │
+       ▼          ▼               ▼            ▼
+┌──────────┐ ┌──────────────┐ ┌────────┐ ┌─────────────────────────┐
+│ pgvector │ │ Azure OpenAI │ │sessions│ │ calc/surface_treatment.py│
+│documents │ │ gpt-35-turbo │ │messages│ │ (Python-funktiot)        │
+└──────────┘ └──────────────┘ └────────┘ └─────────────────────────┘
 ```
 
 ---
@@ -61,7 +64,10 @@ Keskeiset reitit:
 | Reitti      | Tehtävä                                    |
 |-------------|--------------------------------------------|
 | `GET /`     | Palauttaa `static/index.html`              |
-| `GET /ask`  | RAG + LLM + Function Calling -pääreitti    |
+| `POST /ask` | RAG + LLM + Function Calling + sessiomuisti |
+| `GET /sessions` | Listaa aiemmat sessiot (tiivistelmät)   |
+| `GET /sessions/{id}` | Hakee session historian            |
+| `DELETE /sessions/{id}` | Poistaa session                  |
 | `GET /search` | Pelkkä vektorihaku ilman LLM:ää          |
 | `GET /test-ask` | Testireitti kovakoodatulla LaTeX-vastauksella |
 | `GET /healthz` | Terveyskontrolli                         |
@@ -349,7 +355,97 @@ EMBED_MODEL=BAAI/bge-m3
 
 ---
 
-## 9. Yhteenveto suunnitteluperiaatteista
+## 9. Sessiomuisti – Progressive Summarization
+
+### 9.1 Konsepti
+
+Jokaisen vastauksen yhteydessä LLM tekee toisen kutsun, joka tiivistää
+session tähänastisen keskustelun 2–4 lauseeksi. Tämä tiivistelmä:
+
+- Toimii **kontekstina** seuraavalle kysymykselle (promptin osana)
+- **Vektoroidaan** ja tallennetaan `sessions`-tauluun (vanhojen sessioiden haku)
+- **Korvaa edellisen** tiivistelmän – ei kumuloidu, vakiopituinen
+
+### 9.2 Tietomalli
+
+```sql
+CREATE TABLE sessions (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    title         TEXT,                -- automaattinen otsikko (1. kysymys)
+    summary       TEXT,                -- viimeisin tiivistelmä
+    summary_embedding VECTOR(1024)     -- vektoroitu tiivistelmä
+);
+
+CREATE TABLE messages (
+    id            SERIAL PRIMARY KEY,
+    session_id    UUID REFERENCES sessions(id) ON DELETE CASCADE,
+    role          TEXT CHECK (role IN ('user','assistant')),
+    content       TEXT,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+### 9.3 Tiivistelmän luonti (joka vastauksella)
+
+```
+[Vanha summary] + [Uusin Q+A]
+          │
+          ▼
+  Azure OpenAI:  "Tiivistä tämä keskustelu 2–4 lauseella.
+                  Säilytä: aiheet, laskelmat, johtopäätökset."
+          │
+          ▼
+  UPDATE sessions SET
+    summary = <uusi tiivistelmä>,
+    summary_embedding = embed(<uusi tiivistelmä>),
+    updated_at = NOW()
+```
+
+### 9.4 Session jatkaminen (Flow)
+
+```
+1. Käyttäjä valitsee vanhan session sivupalkista
+   (tai aloittaa uuden → UUID luodaan)
+
+2. POST /ask { session_id: "abc-123", question: "Entä nikkelille?" }
+
+3. Backend:
+   a) Hakee sessions.summary → "Aiemmin laskettiin Cu-saostusta 10A/2h..."
+   b) RAG-haku kysymykselle
+   c) system_prompt = RAG-konteksti + summary + ohjeet
+   d) Azure OpenAI → vastaus
+   e) Tallenna Q+A messages-tauluun
+   f) Tiivistä koko sessio → päivitä sessions.summary
+
+4. Käyttäjä saa vastauksen, joka ottaa huomioon aiemman keskustelun
+```
+
+### 9.5 Token-budjetti
+
+| Komponentti          | Arvio (tokeneina)     |
+|----------------------|-----------------------|
+| System prompt (ohje) | ~100                  |
+| RAG-konteksti        | ~1500                 |
+| Session-tiivistelmä  | ~200                  |
+| Käyttäjän kysymys    | ~50                   |
+| **Vapaana vastaukselle** | **~2100 (gpt-35-turbo 4k)** |
+
+Tiivistelmä pysyy kompaktina koska se **korvataan** joka kierroksella,
+ei lisätä.
+
+### 9.6 Kustannus
+
+Jokainen vastaus = **2 LLM-kutsua**:
+1. Pääkysymys (RAG + summary + tools)
+2. Tiivistelmäkutsu (lyhyt, ~300 tokenia)
+
+Tiivistelmäkutsu on halpa – ~10% pääkysymyksen kustannuksesta.
+
+---
+
+## 10. Yhteenveto suunnitteluperiaatteista
 
 1. **LLM ei laske** – kielimalli tunnistaa laskutarpeen ja delegoi
    sen deterministiselle Python-funktiolle (Function Calling)
@@ -362,3 +458,6 @@ EMBED_MODEL=BAAI/bge-m3
    suoraan konttiin, joten muutokset näkyvät ilman uudelleenrakennusta
 5. **Fallback** – jos Azure OpenAI -avain puuttuu, API palaa
    yksinkertaiseen extractive-RAG-tilaan (paras osuma = vastaus)
+6. **Progressive Summarization** – jokaisen vastauksen jälkeen koko
+   session tiivistetään 2–4 lauseeksi, joka toimii "muistina" seuraaville
+   kysymyksille ilman että token-budjetti kasvaa

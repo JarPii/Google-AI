@@ -103,3 +103,101 @@ def current_density_calculation(current_a: float, area_dm2: float) -> dict:
         "current_density_a_dm2": density,
         "calculation_steps": latex_string
     }
+
+
+# ── SI-yksikkömuunnokset ──────────────────────────────────────────────
+
+SI_PREFIXES = {
+    "piko":  {"kerroin": 1e-12, "symboli": "p",  "potenssi": -12},
+    "nano":  {"kerroin": 1e-9,  "symboli": "n",  "potenssi": -9},
+    "mikro": {"kerroin": 1e-6,  "symboli": "µ",  "potenssi": -6},
+    "milli": {"kerroin": 1e-3,  "symboli": "m",  "potenssi": -3},
+    "sentti":{"kerroin": 1e-2,  "symboli": "c",  "potenssi": -2},
+    "desi":  {"kerroin": 1e-1,  "symboli": "d",  "potenssi": -1},
+    "perus": {"kerroin": 1e0,   "symboli": "",   "potenssi": 0},
+    "deka":  {"kerroin": 1e1,   "symboli": "da", "potenssi": 1},
+    "hehto": {"kerroin": 1e2,   "symboli": "h",  "potenssi": 2},
+    "kilo":  {"kerroin": 1e3,   "symboli": "k",  "potenssi": 3},
+    "mega":  {"kerroin": 1e6,   "symboli": "M",  "potenssi": 6},
+    "giga":  {"kerroin": 1e9,   "symboli": "G",  "potenssi": 9},
+}
+
+# Englanninkieliset aliakset → suomenkielinen avain
+_PREFIX_ALIASES = {
+    "pico": "piko", "nano": "nano", "micro": "mikro",
+    "milli": "milli", "centi": "sentti", "deci": "desi",
+    "base": "perus", "deca": "deka", "hecto": "hehto",
+    "kilo": "kilo", "mega": "mega", "giga": "giga",
+}
+
+def _resolve_prefix(name: str) -> str:
+    """Resolve Finnish or English prefix name to canonical key."""
+    key = name.strip().lower()
+    return _PREFIX_ALIASES.get(key, key)
+
+
+def unit_conversion(
+    value: float,
+    from_prefix: str,
+    to_prefix: str,
+    unit_symbol: str = ""
+) -> dict:
+    """
+    Muuntaa arvon SI-etuliitteiden välillä.
+    Tukee suomen- ja englanninkielisiä etuliitteitä.
+
+    Tuetut etuliitteet (fi / en):
+      piko/pico, nano, mikro/micro, milli, sentti/centi, desi/deci,
+      perus/base (= ei etuliitettä), deka/deca, hehto/hecto,
+      kilo, mega, giga
+
+    Argumentit:
+    - value (float): Muunnettava lukuarvo
+    - from_prefix (str): Lähtöetuliite, esim. "milli"
+    - to_prefix (str): Kohdeetuliite, esim. "kilo"
+    - unit_symbol (str): Perusyksikkö, esim. "m" (metri), "g" (gramma), "A" (ampeeri)
+
+    Esimerkkejä:
+      unit_conversion(1500, "milli", "perus", "m")  → 1.5 m
+      unit_conversion(2.5, "kilo", "perus", "g")     → 2500 g
+      unit_conversion(0.003, "perus", "milli", "A")   → 3 mA
+      unit_conversion(50, "sentti", "desi", "m")      → 5 dm
+    """
+    from_key = _resolve_prefix(from_prefix)
+    to_key = _resolve_prefix(to_prefix)
+
+    if from_key not in SI_PREFIXES:
+        return {"error": f"Tuntematon lähtöetuliite: '{from_prefix}'. Tuetut: {', '.join(SI_PREFIXES.keys())}"}
+    if to_key not in SI_PREFIXES:
+        return {"error": f"Tuntematon kohdeetuliite: '{to_prefix}'. Tuetut: {', '.join(SI_PREFIXES.keys())}"}
+
+    src = SI_PREFIXES[from_key]
+    dst = SI_PREFIXES[to_key]
+
+    # Muunnetaan perusyksikön kautta
+    value_base = value * src["kerroin"]
+    result = value_base / dst["kerroin"]
+
+    # LaTeX-selitys
+    from_sym = src["symboli"] + unit_symbol
+    to_sym = dst["symboli"] + unit_symbol
+    exponent_diff = src["potenssi"] - dst["potenssi"]
+
+    latex_string = (
+        f"SI-yksikkömuunnos:\n"
+        f"$$ {value}\\text{{ {from_sym}}} "
+        f"= {value} \\times 10^{{{src['potenssi']}}} \\text{{ {unit_symbol}}} "
+        f"= {value_base:.6g} \\text{{ {unit_symbol}}} $$\n\n"
+        f"Muunnetaan kohdeyksikköön ($ 10^{{{dst['potenssi']}}} $):\n"
+        f"$$ {value_base:.6g} \\div 10^{{{dst['potenssi']}}} "
+        f"= {result:.6g} \\text{{ {to_sym}}} $$\n\n"
+        f"Tulos:\n"
+        f"$$ {value}\\text{{ {from_sym}}} = {result:.6g}\\text{{ {to_sym}}} $$"
+    )
+
+    return {
+        "result": result,
+        "from": f"{value} {from_sym}",
+        "to": f"{result:.6g} {to_sym}",
+        "calculation_steps": latex_string
+    }
