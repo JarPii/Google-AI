@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Google Drive Mount
+Exec=rclone mount GoogleDrive: /home/jarpii/GoogleDrive --vfs-cache-mode writes --daemon
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true

@@ -6,3 +6,4 @@ nohup.out
 .cache/
 .env
 .env
+migration/dotfiles/rclone.conf
