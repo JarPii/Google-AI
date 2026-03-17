@@ -23,7 +23,7 @@ for snap in "${SNAPS[@]}"; do
     echo "  ⏭️  $snap on jo asennettuna"
   else
     echo "  📦 Asennetaan $snap..."
-    sudo snap install "$snap"
+    sudo snap install "$snap" --classic 2>/dev/null || sudo snap install "$snap"
   fi
 done
 
